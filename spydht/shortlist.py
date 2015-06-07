@@ -3,12 +3,13 @@ import threading
 from .peer import Peer
 
 class Shortlist(object):
-    def __init__(self, k, key):
+    def __init__(self, k, key, dht):
         self.k = k
         self.key = key
         self.list = list()
         self.lock = threading.Lock()
         self.completion_value = None
+        self.dht = dht
         
     def set_complete(self, value):
         with self.lock:
@@ -25,6 +26,10 @@ class Shortlist(object):
     def _update_one(self, node):
         if node.id == self.key or self.completion_value:
             return
+
+        if node.host == self.dht.wan_ip and node.port == self.dht.peer.port:
+            return
+        
         with self.lock:
             for i in range(len(self.list)):
                 if node.id == self.list[i][0][2]:

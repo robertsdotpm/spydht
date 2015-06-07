@@ -17,11 +17,33 @@ class BucketSet(object):
         self.bucket_size = bucket_size
         self.buckets = [list() for _ in range(buckets)]
         self.lock = threading.Lock()
+        self.seen_ids = {}
+        self.seen_ips = {}
+        self.max_entries_per_ip = 2
         
     def insert(self, peer):
         if peer.id != self.id:
-            bucket_number = largest_differing_bit(self.id, peer.id)
+            #Find peer details.
             peer_triple = peer.astriple()
+            peer_addr = peer_triple[0:2]
+            peer_id = peer_triple[2]
+
+            #Unique peer ID is required.
+            if peer_id in self.seen_ids:
+                return
+
+            #Too many routing entries for same IP.
+            peer_host = peer_addr[0]
+            peer_port = peer_addr[1]
+            if peer_host in self.seen_ips:
+                if len(self.seen_ips[peer_host]) >= self.max_entries_per_ip:
+                    if peer_port not in self.seen_ips[peer_host]:
+                        return
+            else:
+                self.seen_ips[peer_host] = []
+
+            #Insert triplet into bucket.
+            bucket_number = largest_differing_bit(self.id, peer.id)
             with self.lock:
                 bucket = self.buckets[bucket_number]
                 if peer_triple in bucket: 
@@ -29,6 +51,10 @@ class BucketSet(object):
                 elif len(bucket) >= self.bucket_size:
                     bucket.pop(0)
                 bucket.append(peer_triple)
+                self.seen_ids[peer_id] = bucket_number
+                if peer_port not in self.seen_ips[peer_host]:
+                    self.seen_ips[peer_host].append(peer_port)
+                
                 
     def nearest_nodes(self, key, limit=None):
         num_results = limit if limit else self.bucket_size

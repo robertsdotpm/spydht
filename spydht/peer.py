@@ -38,9 +38,10 @@ class Peer(object):
         }
         self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
         
-    def pong(self, socket=None, peer_id=None, lock=None):
+    def pong(self, magic, socket=None, peer_id=None, lock=None):
         message = {
-           "message_type": "pong"
+            "message_type": "pong",
+            "magic": magic
         }
         self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
         
