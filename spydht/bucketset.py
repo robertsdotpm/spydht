@@ -1,5 +1,6 @@
 import heapq
 import threading
+import time
 
 from .peer import Peer
 
@@ -20,6 +21,9 @@ class BucketSet(object):
         self.seen_ids = {}
         self.seen_ips = {}
         self.max_entries_per_ip = 2
+
+        #Maps nodes to timestamp.
+        self.node_freshness = [] 
         
     def insert(self, peer):
         if peer.id != self.id:
@@ -45,15 +49,26 @@ class BucketSet(object):
             #Insert triplet into bucket.
             bucket_number = largest_differing_bit(self.id, peer.id)
             with self.lock:
+                #Record node in routing table.
                 bucket = self.buckets[bucket_number]
                 if peer_triple in bucket: 
                     bucket.pop(bucket.index(peer_triple))
                 elif len(bucket) >= self.bucket_size:
                     bucket.pop(0)
                 bucket.append(peer_triple)
+
+                #Bookkeeping for spam prevention.
                 self.seen_ids[peer_id] = bucket_number
                 if peer_port not in self.seen_ips[peer_host]:
                     self.seen_ips[peer_host].append(peer_port)
+
+                #Record node freshness for efficient pings.
+                freshness = {
+                    "timestamp": time.time(),
+                    "bucket_no": bucket_number,
+                    "node": bucket[len(bucket) - 1]
+                }
+                self.node_freshness.append(freshness)
                 
                 
     def nearest_nodes(self, key, limit=None):

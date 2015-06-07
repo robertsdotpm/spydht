@@ -33,27 +33,38 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
             main = self.server.dht
             elapsed = time.time() - main.last_ping
             if elapsed >= main.ping_interval:
-                bucket_no = 0
-                for bucket in main.buckets.buckets:
-                    for node in bucket:
-                        #Store pending ping.
-                        magic = hashlib.sha256(str(uuid.uuid4()).encode("ascii")).hexdigest()
-                        main.ping_ids[magic] = {
-                            "node": node,
-                            "timestamp": time.time(),
-                            "bucket_no": bucket_no
-                        }
+                for freshness in main.buckets.node_freshness:
+                    #Check freshness.
+                    elapsed = time.time() - freshness["timestamp"]
+                    if elapsed < main.ping_interval:
+                        break
 
-                        #Send ping.
-                        message = {
-                            "message_type": "ping",
-                            "magic": magic
-                        }
-                        peer = Peer(node[0], node[1], node[2])
-                        peer._sendmessage(message, self.server.socket, peer_id=peer.id, lock=self.server.send_lock)
+                    #Store pending ping.
+                    bucket_no = freshness["bucket_no"]
+                    bucket = main.buckets.buckets[bucket_no]
+                    node = freshness["node"]
+                    magic = hashlib.sha256(str(uuid.uuid4()).encode("ascii")).hexdigest()
+                    freshness["timestamp"] = time.time()
+                    main.ping_ids[magic] = {
+                        "node": node,
+                        "timestamp": time.time(),
+                        "bucket_no": bucket_no,
+                        "freshness": freshness
+                    }
 
-                    #Increase bucket no.
-                    bucket_no += 1
+                    #Send ping.
+                    message = {
+                        "message_type": "ping",
+                        "magic": magic
+                    }
+                    peer = Peer(node[0], node[1], node[2])
+                    peer._sendmessage(message, self.server.socket, peer_id=peer.id, lock=self.server.send_lock)
+
+                    #Indicate freshness in ordering.
+                    del main.buckets.node_freshness[0]
+                    main.buckets.node_freshness.append(freshness)
+
+                    break
 
                 #Refresh last ping.
                 main.last_ping = time.time()
@@ -71,7 +82,6 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
                 bucket_no = main.ping_ids[magic]
                 node = main.ping_ids[node]
                 main.buckets.buckets[bucket_no].remove(node)
-                del main.ping_ids[magic]
 
                 #More cleanup stuff so new nodes can be added.
                 host, port, id = node
@@ -83,6 +93,8 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
                         del main.buckets.seen_ips[host]
 
                 del main.buckets.seen_ids[id]
+                main.buckets.node_freshness.remove(main.ping_ids[magic]["freshness"])
+                del main.ping_ids[magic]
 
             #Check for expired keys.
             if main.store_expiry:
@@ -231,8 +243,8 @@ class DHTServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
 
 class DHT(object):
     def __init__(self, host, port, key, id=None, boot_host=None, boot_port=None, wan_ip=None):
-        #Send node pings out every n seconds.
-        self.ping_interval = 5 * 60
+        #Send node pings to least fresh node every n seconds.
+        self.ping_interval = 20
 
         #Time to reply to a ping in seconds.
         self.ping_expiry = 10
