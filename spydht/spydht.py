@@ -73,6 +73,17 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
                 main.buckets.buckets[bucket_no].remove(node)
                 del main.ping_ids[magic]
 
+                #More cleanup stuff so new nodes can be added.
+                host, port, id = node
+                if host in main.buckets.seen_ips:
+                    if port in main.buckets.seen_ips[host]:
+                        main.buckets.seen_ips[host].remove(port)
+
+                    if not len(main.buckets.seen_ips[host]):
+                        del main.buckets.seen_ips[host]
+
+                del main.buckets.seen_ids[id]
+
             #Check for expired keys.
             if main.store_expiry:
                 #Time to run check again?
