@@ -2,6 +2,9 @@ import sys, os
 import json
 import random
 import socket
+import select
+import hashlib
+import re
 try:
     import socketserver
 except:
@@ -15,13 +18,13 @@ import uuid
 import hashlib
 
 from .bucketset import BucketSet
-from .hashing import hash_function, random_id
+from .hashing import hash_function, random_id, id_from_addr
 from .peer import Peer
 from .shortlist import Shortlist
 
 k = 20
 alpha = 3
-id_bits = 128
+id_bits = 256
 iteration_sleep = 1
 
 class DHTRequestHandler(socketserver.BaseRequestHandler):
@@ -117,25 +120,27 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
                     main.last_store_check = time.time()
 
         #Handle replies and requests.
+        message = json.loads(self.request[0].decode("utf-8").strip())
+        print(message)
+        message_type = message["message_type"]
+        if message_type == "ping":
+            self.handle_ping(message)
+        elif message_type == "pong":
+            self.handle_pong(message)
+        elif message_type == "find_node":
+            self.handle_find(message)
+        elif message_type == "find_value":
+            self.handle_find(message, find_value=True)
+        elif message_type == "found_nodes":
+            self.handle_found_nodes(message)
+        elif message_type == "found_value":
+            self.handle_found_value(message)
+        elif message_type == "store":
+            self.handle_store(message)
+        elif message_type == "push":
+            self.handle_push(message)
         try:
-            message = json.loads(self.request[0].decode("utf-8").strip())
-            message_type = message["message_type"]
-            if message_type == "ping":
-                self.handle_ping(message)
-            elif message_type == "pong":
-                self.handle_pong(message)
-            elif message_type == "find_node":
-                self.handle_find(message)
-            elif message_type == "find_value":
-                self.handle_find(message, find_value=True)
-            elif message_type == "found_nodes":
-                self.handle_found_nodes(message)
-            elif message_type == "found_value":
-                self.handle_found_value(message)
-            elif message_type == "store":
-                self.handle_store(message)
-            elif message_type == "push":
-                self.handle_push(message)
+            pass
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -202,6 +207,17 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
     def handle_found_value(self, message):
         rpc_id = message["rpc_id"]
         shortlist = self.server.dht.rpc_ids[rpc_id]
+
+        #Verify key is correct.
+        expected_key = hash_function(message["value"]["id"].encode("ascii") + message["value"]["content"].encode("ascii"))
+
+        print(message["value"])
+        print(expected_key)
+        print(shortlist.key)
+
+        if shortlist.key != expected_key:
+            return
+
         del self.server.dht.rpc_ids[rpc_id]
         shortlist.set_complete(message["value"])
         
@@ -231,6 +247,13 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
             if ret != message_content:
                 return
 
+        #Verify key is correct.
+        expected_key = hash_function(message["value"]["id"].encode("ascii") + message["value"]["content"].encode("ascii"))
+        print(expected_key)
+        print(key)
+        if key != expected_key:
+            return
+
         self.server.dht.data[key] = message["value"]
 
     def handle_push(self, message):
@@ -244,7 +267,7 @@ class DHTServer(socketserver.ThreadingMixIn, socketserver.UDPServer):
 class DHT(object):
     def __init__(self, host, port, key, id=None, boot_host=None, boot_port=None, wan_ip=None):
         #Send node pings to least fresh node every n seconds.
-        self.ping_interval = 20
+        self.ping_interval = 10
 
         #Time to reply to a ping in seconds.
         self.ping_expiry = 10
@@ -256,17 +279,68 @@ class DHT(object):
         #How often in seconds to check for expired keys.
         self.store_check_interval = 1 * 60
 
+        #How often to broadcast which bind port we've taken.
+        self.broadcast_interval = 1
+
+        #Survey network for active DHT instances.
+        self.broadcast_port = 31337
+        broadcast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        broadcast.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        broadcast.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        broadcast.bind(('', self.broadcast_port))
+        broadcast.setblocking(0)
+
+        #Wait for reply.
+        waited = 0
+        sleep_interval = 1
+        observed_ports = []
+        while waited < (self.broadcast_interval * 2) + 1:
+            waited += sleep_interval
+            r, w, e = select.select([broadcast], [], [], 0)
+            for s in r:
+                msg = s.recv(1024)
+                msg = msg.decode("utf-8")
+                ret = re.findall("^SPYDHT BIND ([0-9]+)$", msg)
+                if ret:
+                    observed_port, = ret
+                    observed_port = int(observed_port)
+                    if observed_port not in observed_ports:
+                        observed_ports.append(observed_port)
+
+            time.sleep(sleep_interval)
+
+        #Are there any valid ports left?
+        self.valid_bind_ports = [31000, 31001] #Per LAN.
+        allowed_ports = self.valid_bind_ports.copy()
+        for observed_port in observed_ports:
+            allowed_ports.remove(observed_port)
+        if not len(allowed_ports):
+            raise Exception("Maximum SPYDHT instances for this LAN exceeded! Try closing some instances of this software.")
+
+        #Indicate to LAN that this port is now reserved.
+        self.port = allowed_ports[0]
+        def broadcast_loop():
+            while 1:
+                msg = "SPYDHT BIND %s" % (str(self.port))
+                msg = msg.encode("ascii")
+                broadcast.sendto(msg, ('255.255.255.255', self.broadcast_port))
+                time.sleep(self.broadcast_interval)
+        self.broadcast_thread = threading.Thread(target=broadcast_loop)
+        self.broadcast_thread.start()
+
+        #Generic init.
+        self.wan_ip = wan_ip
+        if self.wan_ip == None:
+            raise Exception("WAN IP required.")
         self.my_key = key
         if not id:
-            id = random_id()
-
+            id = id_from_addr(self.wan_ip, self.port)
         self.last_ping = time.time()
         self.ping_ids = {}        
         self.last_store_check = time.time()
-        self.wan_ip = wan_ip
-        self.peer = Peer(str(host), port, id)
+        self.peer = Peer(str(host), self.port, id)
         self.data = {}
-        self.buckets = BucketSet(k, id_bits, self.peer.id)
+        self.buckets = BucketSet(k, id_bits, self.peer.id, self.valid_bind_ports)
         self.rpc_ids = {} # should probably have a lock for this
         self.server = DHTServer(self.peer.address(), DHTRequestHandler)
         self.server.dht = self
@@ -315,7 +389,7 @@ class DHT(object):
             self.iterative_find_nodes(self.peer.id, boot_peer=boot_peer)
                     
     def __getitem__(self, key, bypass=4):
-        hashed_key = hash_function(key.encode("ascii"))
+        hashed_key = int(key, 16)
         if hashed_key in self.data:
             return self.data[hashed_key]["content"]
         result = self.iterative_find_value(hashed_key)
@@ -330,9 +404,10 @@ class DHT(object):
         
     def __setitem__(self, key, content):
         content = str(content)
-        hashed_key = hash_function(key.encode("ascii"))
+        hashed_key = hash_function(key.encode("ascii") + content.encode("ascii"))
         nearest_nodes = self.iterative_find_nodes(hashed_key)
         value = {
+            "id": key,
             "timestamp": time.time(),
             "content": content,
             "key": self.my_key.verify_key.encode(encoder=nacl.encoding.Base64Encoder).decode("utf-8"),
