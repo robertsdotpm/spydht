@@ -121,26 +121,24 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
         #Handle replies and requests.
         message = json.loads(self.request[0].decode("utf-8").strip())
-        print(message)
-        message_type = message["message_type"]
-        if message_type == "ping":
-            self.handle_ping(message)
-        elif message_type == "pong":
-            self.handle_pong(message)
-        elif message_type == "find_node":
-            self.handle_find(message)
-        elif message_type == "find_value":
-            self.handle_find(message, find_value=True)
-        elif message_type == "found_nodes":
-            self.handle_found_nodes(message)
-        elif message_type == "found_value":
-            self.handle_found_value(message)
-        elif message_type == "store":
-            self.handle_store(message)
-        elif message_type == "push":
-            self.handle_push(message)
         try:
-            pass
+            message_type = message["message_type"]
+            if message_type == "ping":
+                self.handle_ping(message)
+            elif message_type == "pong":
+                self.handle_pong(message)
+            elif message_type == "find_node":
+                self.handle_find(message)
+            elif message_type == "find_value":
+                self.handle_find(message, find_value=True)
+            elif message_type == "found_nodes":
+                self.handle_found_nodes(message)
+            elif message_type == "found_value":
+                self.handle_found_value(message)
+            elif message_type == "store":
+                self.handle_store(message)
+            elif message_type == "push":
+                self.handle_push(message)
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -210,11 +208,6 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
         #Verify key is correct.
         expected_key = hash_function(message["value"]["id"].encode("ascii") + message["value"]["content"].encode("ascii"))
-
-        print(message["value"])
-        print(expected_key)
-        print(shortlist.key)
-
         if shortlist.key != expected_key:
             return
 
@@ -239,18 +232,20 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
             #Signature is valid.
             #(Raises exception if not.)
             ret = nacl.signing.VerifyKey(self.server.dht.data[key]["key"], encoder=nacl.encoding.Base64Encoder).verify(nacl.encoding.Base64Encoder.decode(message["value"]["signature"]))
-            if type(ret) == bytes:
-                ret = ret.decode("utf-8")
+        else:
+            ret = nacl.signing.VerifyKey(message["value"]["key"], encoder=nacl.encoding.Base64Encoder).verify(nacl.encoding.Base64Encoder.decode(message["value"]["signature"]))
 
-            #Check that the signature corresponds to this message.
-            message_content = message["value"]["content"]
-            if ret != message_content:
-                return
+        #Decode ret to unicode.
+        if type(ret) == bytes:
+            ret = ret.decode("utf-8")
+
+        #Check that the signature corresponds to this message.
+        message_content = message["value"]["content"]
+        if ret != message_content:
+            return
 
         #Verify key is correct.
         expected_key = hash_function(message["value"]["id"].encode("ascii") + message["value"]["content"].encode("ascii"))
-        print(expected_key)
-        print(key)
         if key != expected_key:
             return
 
