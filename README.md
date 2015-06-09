@@ -3,13 +3,11 @@ spydht
 
 Forked from [kohlrabi23/spydht](https://github.com/kohlrabi23/spydht)
 
-This is a more secure rewrite of the original spydht code (itself forked from [isaaczafuta/pydht](https://github.com/isaaczafuta/pydht).)
-
 Python 2 and Python 3 implementation of the Kademlia DHT data store.
 
 Useful for distributing a key-value store in a decentralized manner.
 
-This is a slightly more secure rewrite of the original pydht code.
+This is a more secure rewrite of the original spydht code (itself forked from [isaaczafuta/pydht](https://github.com/isaaczafuta/pydht).)
 
 Improvements over the original project include:
 * Node IDs switched to SHA256 to avoid collisions with MD5.
