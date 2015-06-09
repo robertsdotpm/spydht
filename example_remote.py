@@ -13,6 +13,7 @@ id = unique_id
 content = "my content"
 key = hashlib.sha256(id.encode("ascii") + content.encode("ascii")).hexdigest()
 
+dht2[id] = content
 print(dht2[key])
 
 

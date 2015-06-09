@@ -428,7 +428,7 @@ class DHT(object):
     def bootstrap(self, boot_host, boot_port):
         if boot_host and boot_port:
             self.boot_peer = Peer(boot_host, boot_port, 0)
-            self.iterative_find_nodes(self.peer.id, boot_peer=boot_peer)
+            self.iterative_find_nodes(self.peer.id, boot_peer=self.boot_peer)
                     
     def __getitem__(self, key, bypass=10):
         hashed_key = int(key, 16)
