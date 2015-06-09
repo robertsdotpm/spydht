@@ -84,7 +84,7 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
             #Timeout pending pings and remove old routing entries.
             for magic in expired:
-                bucket_no = main.ping_ids[magic]
+                bucket_no = main.ping_ids[magic]["bucket_no"]
                 node = main.ping_ids[magic]["node"]
                 main.buckets.buckets[bucket_no].remove(node)
 
@@ -372,6 +372,7 @@ class DHT(object):
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()
+        self.boot_peer = None
         self.bootstrap(str(boot_host), boot_port)
 
     def value_to_str(self, value):
@@ -392,13 +393,16 @@ class DHT(object):
             self.rpc_ids[rpc_id] = shortlist
             boot_peer.find_node(key, rpc_id, socket=self.server.socket, peer_id=self.peer.id)
 
-        while (not shortlist.complete()) or boot_peer:
+        max_iterations = k * id_bits
+        iterations = 0
+        while ((not shortlist.complete()) or boot_peer) and iterations < max_iterations:
             nearest_nodes = shortlist.get_next_iteration(alpha)
             for peer in nearest_nodes:
                 shortlist.mark(peer)
                 rpc_id = random.getrandbits(id_bits)
                 self.rpc_ids[rpc_id] = shortlist
                 peer.find_node(key, rpc_id, socket=self.server.socket, peer_id=self.peer.id) ######
+                iterations += 1
             time.sleep(iteration_sleep)
             boot_peer = None
 
@@ -407,20 +411,23 @@ class DHT(object):
     def iterative_find_value(self, key):
         shortlist = Shortlist(k, key, self)
         shortlist.update(self.buckets.nearest_nodes(key, limit=alpha))
-        while not shortlist.complete():
+        max_iterations = k * id_bits
+        iterations = 0
+        while not shortlist.complete() and iterations < max_iterations:
             nearest_nodes = shortlist.get_next_iteration(alpha)
             for peer in nearest_nodes:
                 shortlist.mark(peer)
                 rpc_id = random.getrandbits(id_bits)
                 self.rpc_ids[rpc_id] = shortlist
                 peer.find_value(key, rpc_id, socket=self.server.socket, peer_id=self.peer.id) #####
+                iterations += 1
             time.sleep(iteration_sleep)
 
         return shortlist.completion_result()
             
     def bootstrap(self, boot_host, boot_port):
         if boot_host and boot_port:
-            boot_peer = Peer(boot_host, boot_port, 0)
+            self.boot_peer = Peer(boot_host, boot_port, 0)
             self.iterative_find_nodes(self.peer.id, boot_peer=boot_peer)
                     
     def __getitem__(self, key, bypass=10):
@@ -473,6 +480,10 @@ class DHT(object):
                 hashed_key = expected_key
 
             self.data[hashed_key] = value
+
+            #Store a copy on the boot node.
+            if self.boot_node != None:
+                self.boot_node.store(hashed_key, value, socket=self.server.socket, peer_id=self.peer.id)
 
         for node in nearest_nodes:
             node.store(hashed_key, value, socket=self.server.socket, peer_id=self.peer.id)
