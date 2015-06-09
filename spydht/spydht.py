@@ -21,11 +21,13 @@ from .bucketset import BucketSet
 from .hashing import hash_function, random_id, id_from_addr
 from .peer import Peer
 from .shortlist import Shortlist
+from .proof_of_work import ProofOfWork
 
 k = 20
 alpha = 3
 id_bits = 256
 iteration_sleep = 1
+debug = 1
 
 class DHTRequestHandler(socketserver.BaseRequestHandler):
 
@@ -61,7 +63,7 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
                         "magic": magic
                     }
                     peer = Peer(node[0], node[1], node[2])
-                    peer._sendmessage(message, self.server.socket, peer_id=peer.id, lock=self.server.send_lock)
+                    peer._sendmessage(message, self.server.socket, peer_id=peer.id)
 
                     #Indicate freshness in ordering.
                     del main.buckets.node_freshness[0]
@@ -121,8 +123,10 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
         #Handle replies and requests.
         message = json.loads(self.request[0].decode("utf-8").strip())
+        message_type = message["message_type"]
+        if debug:
+            print(message)
         try:
-            message_type = message["message_type"]
             if message_type == "ping":
                 self.handle_ping(message)
             elif message_type == "pong":
@@ -219,7 +223,7 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
         #Check message hasn't expired.
         if self.server.dht.store_expiry:
-            elapsed = time.time() - message["timestamp"]
+            elapsed = time.time() - message["value"]["timestamp"]
             if elapsed >= self.server.dht.store_expiry:
                 return
 
@@ -232,8 +236,10 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
             #Signature is valid.
             #(Raises exception if not.)
             ret = nacl.signing.VerifyKey(self.server.dht.data[key]["key"], encoder=nacl.encoding.Base64Encoder).verify(nacl.encoding.Base64Encoder.decode(message["value"]["signature"]))
+            already_exists = 1
         else:
             ret = nacl.signing.VerifyKey(message["value"]["key"], encoder=nacl.encoding.Base64Encoder).verify(nacl.encoding.Base64Encoder.decode(message["value"]["signature"]))
+            already_exists = 0
 
         #Decode ret to unicode.
         if type(ret) == bytes:
@@ -244,10 +250,29 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
         if ret != message_content:
             return
 
-        #Verify key is correct.
+        """
+        A node is allowed to "update" their old key by deleting it if they can prove ownership by sig signing with the original key but a new key still has to be computed so the content moves.
+        """
         expected_key = hash_function(message["value"]["id"].encode("ascii") + message["value"]["content"].encode("ascii"))
+        if already_exists:
+            del self.server.dht.data[key]
+            key = expected_key
+
+        #Verify key is correct.
         if key != expected_key:
             return
+
+        #Content is too big.
+        if len(message["value"]["content"]) > self.server.dht.max_store_size:
+            return
+
+        #Check proof of work.
+        nonce = message["value"]["pow"]
+        message["value"]["pow"] = self.server.dht.pow_placeholder
+
+        if not self.server.dht.proof_of_work.is_valid(self.server.dht.value_to_str(message["value"]), nonce, self.server.dht.store_expiry):
+            return
+        message["value"]["pow"] = nonce
 
         self.server.dht.data[key] = message["value"]
 
@@ -276,6 +301,9 @@ class DHT(object):
 
         #How often to broadcast which bind port we've taken.
         self.broadcast_interval = 1
+
+        #Max amount of data per key - important field.
+        self.max_store_size = 1024 * 5
 
         #Survey network for active DHT instances.
         self.broadcast_port = 31337
@@ -331,7 +359,9 @@ class DHT(object):
         if not id:
             id = id_from_addr(self.wan_ip, self.port)
         self.last_ping = time.time()
-        self.ping_ids = {}        
+        self.ping_ids = {}
+        self.proof_of_work = ProofOfWork()
+        self.pow_placeholder = "ProleteR"
         self.last_store_check = time.time()
         self.peer = Peer(str(host), self.port, id)
         self.data = {}
@@ -343,6 +373,16 @@ class DHT(object):
         self.server_thread.daemon = True
         self.server_thread.start()
         self.bootstrap(str(boot_host), boot_port)
+
+    def value_to_str(self, value):
+        s  = str(value["id"])
+        s += str(value["content"])
+        s += str(value["key"])
+        s += str(value["timestamp"])
+        s += str(value["pow"])
+        s += str(value["signature"])
+
+        return s
     
     def iterative_find_nodes(self, key, boot_peer=None):
         shortlist = Shortlist(k, key, self)
@@ -383,7 +423,7 @@ class DHT(object):
             boot_peer = Peer(boot_host, boot_port, 0)
             self.iterative_find_nodes(self.peer.id, boot_peer=boot_peer)
                     
-    def __getitem__(self, key, bypass=4):
+    def __getitem__(self, key, bypass=10):
         hashed_key = int(key, 16)
         if hashed_key in self.data:
             return self.data[hashed_key]["content"]
@@ -399,18 +439,41 @@ class DHT(object):
         
     def __setitem__(self, key, content):
         content = str(content)
-        hashed_key = hash_function(key.encode("ascii") + content.encode("ascii"))
+        if type(key) != dict:
+            expected_key = hash_function(key.encode("ascii") + content.encode("ascii"))
+            hashed_key = expected_key 
+            old_key = 0
+        else:
+            temp = key
+            key = temp["id"]
+            hashed_key = temp["old_key"]
+            expected_key = hash_function(key.encode("ascii") + content.encode("ascii"))
+            old_key = 1
+
         nearest_nodes = self.iterative_find_nodes(hashed_key)
         value = {
             "id": key,
             "timestamp": time.time(),
             "content": content,
             "key": self.my_key.verify_key.encode(encoder=nacl.encoding.Base64Encoder).decode("utf-8"),
-            "signature": nacl.encoding.Base64Encoder.encode(self.my_key.sign(content.encode("ascii"))).decode("utf-8")
+            "signature": nacl.encoding.Base64Encoder.encode(self.my_key.sign(content.encode("ascii"))).decode("utf-8"),
+            "pow": self.pow_placeholder
         }
 
+        #Calculate proof of work.
+        nonce = self.proof_of_work.calculate(self.value_to_str(value), self.store_expiry)
+        value["pow"] = nonce
+
         if not nearest_nodes:
+            #Update and delete.
+            if old_key:
+                if hashed_key in self.data:
+                    del self.data[hashed_key]
+
+                hashed_key = expected_key
+
             self.data[hashed_key] = value
+
         for node in nearest_nodes:
             node.store(hashed_key, value, socket=self.server.socket, peer_id=self.peer.id)
         

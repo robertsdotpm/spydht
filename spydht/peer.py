@@ -22,7 +22,7 @@ class Peer(object):
         encoded = json.dumps(message)
         try:
             encoded = str(encoded).encode("ascii")
-        except:
+        except Exception as e:
             return
 
         if sock:
@@ -31,6 +31,8 @@ class Peer(object):
                     sock.sendto(encoded, (self.host, self.port))
             else:
                 sock.sendto(encoded, (self.host, self.port))
+
+        return encoded
         
     def ping(self, socket=None, peer_id=None, lock=None):
         message = {
@@ -51,7 +53,7 @@ class Peer(object):
             "id": key,
             "value": value
         }
-        self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
+        return self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
         
     def find_node(self, id, rpc_id, socket=None, peer_id=None, lock=None):
         message = {

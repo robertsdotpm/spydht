@@ -16,11 +16,44 @@ time.sleep(5)
 content = "x"
 id = "test"
 
+dht2[id] = content
+
+time.sleep(2)
+
+print(dht2.buckets.buckets)
+
 key = hashlib.sha256(id.encode("ascii") + content.encode("ascii")).hexdigest()
 
-print(dht2[key])
+print("hererere")
+
+print(dht2.data)
+
+try:
+    print(dht2[key])
+except:
+    pass
+
+print("After .")
+
+
+
+print("what key should be")
+print(int(key, 16))
+
+
+content = "new"
+id = "new content"
+dht2[{"old_key": int(key, 16), "id": "new content"}] = content
+
+
+
+key = hashlib.sha256(id.encode("ascii") + content.encode("ascii")).hexdigest()
+
+print("new key: ")
+print(int(key, 16))
 
 print(dht2[key])
+
 
 while True:
     time.sleep(1)
