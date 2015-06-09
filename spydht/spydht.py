@@ -295,7 +295,7 @@ class DHT(object):
 
         #How long to store keys for in seconds.
         #Zero for no limit.
-        self.store_expiry = 5 * 60
+        self.store_expiry = (60 * 60) * 12
 
         #How often in seconds to check for expired keys.
         self.store_check_interval = 1 * 60
@@ -392,7 +392,11 @@ class DHT(object):
         if boot_peer:
             rpc_id = random.getrandbits(id_bits)
             self.rpc_ids[rpc_id] = shortlist
-            boot_peer.find_node(key, rpc_id, socket=self.server.socket, peer_id=self.peer.id)
+
+            #Because UDP is unreliable and we really need a response.
+            for i in range(0, 2): 
+                boot_peer.find_node(key, rpc_id, socket=self.server.socket, peer_id=self.peer.id)
+                time.sleep(1)
 
         max_iterations = k * id_bits
         iterations = 0
@@ -431,7 +435,7 @@ class DHT(object):
             self.boot_peer = Peer(boot_host, boot_port, 0)
             self.iterative_find_nodes(self.peer.id, boot_peer=self.boot_peer)
                     
-    def __getitem__(self, key, bypass=10):
+    def __getitem__(self, key, bypass=5):
         hashed_key = int(key, 16)
         if hashed_key in self.data:
             return self.data[hashed_key]["content"]
@@ -440,7 +444,7 @@ class DHT(object):
             return result["content"]
 
         if bypass != 0:
-            time.sleep(0.100)
+            time.sleep(1)
             return self.__getitem__(key, bypass - 1)
 
         raise KeyError
