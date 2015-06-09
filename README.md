@@ -18,6 +18,7 @@ Improvements over the original project include:
 * Proper signature validations!
 * Ping commands implemented to keep routing tables fresh.
 * Built in data integrity using SHA256 fingerprinting - no more spoofed responses. (Although this means that key indexing is less convenient and you can't update keys but you can delete old keys if you prove ownership.)
+* Optional expiry for messages - helps prevent abuse.
 
 I'm not an expert with DHT security so these are just basic things. Sybil attacks are always going to be a problem even with these precautions.
 
