@@ -60,3 +60,6 @@ print(dht2[key])
 ```
 
 See remote_example.py for bootstrapping from a remote DHT.
+
+Note: that its likely the combination of a low node DHT with the UDP protocol will produce seemingly random / unreliable results (and out of order responses even on localhost.) If this happens to you a UDP datagram might have been lost. In a large scale network this issue is mitigated by sending multiple queries to multiple hosts so it's less of an issue.
+
