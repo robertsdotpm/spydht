@@ -9,7 +9,7 @@ Useful for distributing a key-value store in a decentralized manner.
 
 This is a more secure rewrite of the original spydht code (itself forked from [isaaczafuta/pydht](https://github.com/isaaczafuta/pydht).)
 
-Improvements over the original project include:
+###Improvements over the original project include:
 * Node IDs switched to SHA256 to avoid collisions with MD5.
 * Node IDs dereived from the network addr (host + port) to help prevent Sybil attacks (choosing IDs to cluster around a certain key.)
 * Routing tables tightened up significantly - two possible entries per IP and restricted to certain ports. This avoids spam.
@@ -22,7 +22,7 @@ Improvements over the original project include:
 
 I'm not an expert with DHT security so these are just basic things. Sybil attacks are always going to be a problem even with these precautions.
 
-Example: a two node DHT
+**Example: a two node DHT**
 
 Node 1:
 ```python
