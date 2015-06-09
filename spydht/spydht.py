@@ -85,7 +85,7 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
             #Timeout pending pings and remove old routing entries.
             for magic in expired:
                 bucket_no = main.ping_ids[magic]
-                node = main.ping_ids[node]
+                node = main.ping_ids[magic]["node"]
                 main.buckets.buckets[bucket_no].remove(node)
 
                 #More cleanup stuff so new nodes can be added.
