@@ -22,7 +22,7 @@ This is a more secure rewrite of the original spydht code (itself forked from [i
 
 I'm not an expert with DHT security so these are just basic things. Sybil attacks are always going to be a problem even with these precautions.
 
-#####Example: a two node DHT
+####xample: a two node DHT
 
 Node 1:
 ```python
