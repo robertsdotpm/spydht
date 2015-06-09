@@ -447,6 +447,16 @@ class DHT(object):
         if bypass != 0:
             time.sleep(1)
             return self.__getitem__(key, bypass - 1)
+        else:
+            #Fallback on asking the boot node.
+            shortlist = Shortlist(k, key, self)
+            shortlist.mark(self.boot_peer)
+            rpc_id = random.getrandbits(id_bits)
+            self.rpc_ids[rpc_id] = shortlist
+            self.boot_peer.find_value(key, rpc_id, socket=self.server.socket, peer_id=self.peer.id)
+            result = shortlist.completion_result()
+            if result:
+                return result["content"]
 
         raise KeyError
         
@@ -476,8 +486,6 @@ class DHT(object):
         #Calculate proof of work.
         nonce = self.proof_of_work.calculate(self.value_to_str(value), self.store_expiry)
         value["pow"] = nonce
-
-        print(nearest_nodes)
         if not nearest_nodes:
             #Update and delete.
             if old_key:
@@ -488,9 +496,11 @@ class DHT(object):
 
             self.data[hashed_key] = value
 
-            #Store a copy on the boot node.
-            if self.boot_peer != None:
-                self.boot_peer.store(hashed_key, value, socket=self.server.socket, peer_id=self.peer.id)
+        """
+        There's always at least one copy on the boot node so the data is always available. This isn't exactly distributed or in the spirit of a DHT but it will at least ensure more reliability in the face of churn.
+        """
+        if self.boot_peer != None:
+            self.boot_peer.store(hashed_key, value, socket=self.server.socket, peer_id=self.peer.id)
 
         for node in nearest_nodes:
             node.store(hashed_key, value, socket=self.server.socket, peer_id=self.peer.id)
