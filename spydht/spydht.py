@@ -450,6 +450,7 @@ class DHT(object):
         else:
             #Fallback on asking the boot node.
             shortlist = Shortlist(k, key, self)
+            shortlist.update([self.boot_peer])
             shortlist.mark(self.boot_peer)
             rpc_id = random.getrandbits(id_bits)
             self.rpc_ids[rpc_id] = shortlist
