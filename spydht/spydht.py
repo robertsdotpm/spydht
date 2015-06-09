@@ -443,6 +443,7 @@ class DHT(object):
         if result:
             return result["content"]
 
+        #Needed because UDP is unreliable and order isn't guaranteed.
         if bypass != 0:
             time.sleep(1)
             return self.__getitem__(key, bypass - 1)

@@ -38,14 +38,16 @@ class Peer(object):
         message = {
             "message_type": "ping"
         }
-        self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
+        for i in range(0, 2):
+            self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
         
     def pong(self, magic, socket=None, peer_id=None, lock=None):
         message = {
             "message_type": "pong",
             "magic": magic
         }
-        self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
+        for i in range(0, 3):
+            self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
         
     def store(self, key, value, socket=None, peer_id=None, lock=None):
         message = {
@@ -53,7 +55,14 @@ class Peer(object):
             "id": key,
             "value": value
         }
-        return self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
+
+        ret = None
+        for i in range(0, 2):
+            temp = self._sendmessage(message, socket, peer_id=peer_id, lock=lock)
+            if temp != None:
+                ret = temp
+
+        return ret
         
     def find_node(self, id, rpc_id, socket=None, peer_id=None, lock=None):
         message = {
