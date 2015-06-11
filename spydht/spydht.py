@@ -176,11 +176,6 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
         if main.ping_ids[magic]["node"] != astriple:
             return
 
-        #Refresh the new node details.
-        bucket_no = main.ping_ids[magic]["bucket_no"]
-        bucket = main.buckets.buckets[bucket_no]
-        bucket.append(astriple)
-
         #Remove pending ping.
         del main.ping_ids[magic]
         
