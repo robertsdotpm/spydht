@@ -108,7 +108,7 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
                     #Added a check here just in case.
                     freshness = main.ping_ids[magic]["freshness"]
-                    if freshness in main.buckets.node_freshness
+                    if freshness in main.buckets.node_freshness:
                         main.buckets.node_freshness.remove(freshness)
                 except Exception as e:
                     print(e)
