@@ -113,7 +113,7 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
                 except Exception as e:
                     exc_type, exc_obj, exc_tb = sys.exc_info()
                     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                    print(exc_type, fname, exc_tb.tb_lineno)
+                    print(exc_type, fname, exc_tb.tb_lineno, str(e))
                 finally:
                     del main.ping_ids[magic]
 
@@ -162,7 +162,7 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-            print(exc_type, fname, exc_tb.tb_lineno)
+            print(exc_type, fname, exc_tb.tb_lineno, str(e))
             return
 
         client_host, client_port = self.client_address
