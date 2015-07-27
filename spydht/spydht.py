@@ -90,6 +90,8 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
                     """
                     Todo: there was an error here where the node wasn't found in the bucket. Not sure what could be causing this but this is a simple work-around.
+
+                    After investigation: I think the problem is that when buckets get full the end node gets popped to add room. This could cause a recent node entry to no longer be available in the table when the line bellow is executed to try remove it.
                     """
                     if node in main.buckets.buckets[bucket_no]:
                         main.buckets.buckets[bucket_no].remove(node)
