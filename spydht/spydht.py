@@ -84,23 +84,36 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
 
             #Timeout pending pings and remove old routing entries.
             for magic in expired:
-                bucket_no = main.ping_ids[magic]["bucket_no"]
-                node = main.ping_ids[magic]["node"]
-                main.buckets.buckets[bucket_no].remove(node)
+                try:
+                    bucket_no = main.ping_ids[magic]["bucket_no"]
+                    node = main.ping_ids[magic]["node"]
 
-                #More cleanup stuff so new nodes can be added.
-                host, port, id = node
-                if host in main.buckets.seen_ips:
-                    if port in main.buckets.seen_ips[host]:
-                        main.buckets.seen_ips[host].remove(port)
+                    """
+                    Todo: there was an error here where the node wasn't found in the bucket. Not sure what could be causing this but this is a simple work-around.
+                    """
+                    if node in main.buckets.buckets[bucket_no]:
+                        main.buckets.buckets[bucket_no].remove(node)
 
-                    if not len(main.buckets.seen_ips[host]):
-                        del main.buckets.seen_ips[host]
+                    #More cleanup stuff so new nodes can be added.
+                    host, port, id = node
+                    if host in main.buckets.seen_ips:
+                        if port in main.buckets.seen_ips[host]:
+                            main.buckets.seen_ips[host].remove(port)
 
-                if id in main.buckets.seen_ids:
-                    del main.buckets.seen_ids[id]
-                main.buckets.node_freshness.remove(main.ping_ids[magic]["freshness"])
-                del main.ping_ids[magic]
+                        if not len(main.buckets.seen_ips[host]):
+                            del main.buckets.seen_ips[host]
+
+                    if id in main.buckets.seen_ids:
+                        del main.buckets.seen_ids[id]
+
+                    #Added a check here just in case.
+                    freshness = main.ping_ids[magic]["freshness"]
+                    if freshness in main.buckets.node_freshness
+                        main.buckets.node_freshness.remove(freshness)
+                except Exception as e:
+                    print(e)
+                finally:
+                    del main.ping_ids[magic]
 
             #Check for expired keys.
             if main.store_expiry:
