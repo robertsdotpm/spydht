@@ -1,3 +1,7 @@
+"""
+Todo: I don't think this DHT knits data storage around broken nodes but the fallback on the server should be a temporary work around.
+"""
+
 import sys, os
 import json
 import random
@@ -32,119 +36,121 @@ debug = 1
 class DHTRequestHandler(socketserver.BaseRequestHandler):
 
     def handle(self):
+        try:
+            with self.server.send_lock:
+                #Test alive for nodes in routing table.
+                main = self.server.dht
+                elapsed = time.time() - main.last_ping
+                if elapsed >= main.ping_interval:
+                    for freshness in main.buckets.node_freshness:
+                        #Check freshness.
+                        elapsed = time.time() - freshness["timestamp"]
+                        if elapsed < main.ping_interval:
+                            break
 
-        with self.server.send_lock:
-            #Test alive for nodes in routing table.
-            main = self.server.dht
-            elapsed = time.time() - main.last_ping
-            if elapsed >= main.ping_interval:
-                for freshness in main.buckets.node_freshness:
-                    #Check freshness.
-                    elapsed = time.time() - freshness["timestamp"]
-                    if elapsed < main.ping_interval:
+                        #Store pending ping.
+                        bucket_no = freshness["bucket_no"]
+                        bucket = main.buckets.buckets[bucket_no]
+                        node = freshness["node"]
+                        magic = hashlib.sha256(str(uuid.uuid4()).encode("ascii")).hexdigest()
+                        freshness["timestamp"] = time.time()
+                        main.ping_ids[magic] = {
+                            "node": node,
+                            "timestamp": time.time(),
+                            "bucket_no": bucket_no,
+                            "freshness": freshness
+                        }
+
+                        #Send ping.
+                        message = {
+                            "message_type": "ping",
+                            "magic": magic
+                        }
+                        peer = Peer(node[0], node[1], node[2])
+                        peer._sendmessage(message, self.server.socket, peer_id=peer.id)
+
+                        #Indicate freshness in ordering.
+                        del main.buckets.node_freshness[0]
+                        main.buckets.node_freshness.append(freshness)
+
                         break
 
-                    #Store pending ping.
-                    bucket_no = freshness["bucket_no"]
-                    bucket = main.buckets.buckets[bucket_no]
-                    node = freshness["node"]
-                    magic = hashlib.sha256(str(uuid.uuid4()).encode("ascii")).hexdigest()
-                    freshness["timestamp"] = time.time()
-                    main.ping_ids[magic] = {
-                        "node": node,
-                        "timestamp": time.time(),
-                        "bucket_no": bucket_no,
-                        "freshness": freshness
-                    }
+                    #Refresh last ping.
+                    main.last_ping = time.time()
 
-                    #Send ping.
-                    message = {
-                        "message_type": "ping",
-                        "magic": magic
-                    }
-                    peer = Peer(node[0], node[1], node[2])
-                    peer._sendmessage(message, self.server.socket, peer_id=peer.id)
+                #Record expired pings.
+                expired = []
+                for magic in list(main.ping_ids):
+                    ping = main.ping_ids[magic]
+                    elapsed = time.time() - ping["timestamp"]
+                    if elapsed >= main.ping_expiry:
+                        expired.append(magic)
 
-                    #Indicate freshness in ordering.
-                    del main.buckets.node_freshness[0]
-                    main.buckets.node_freshness.append(freshness)
+                #Timeout pending pings and remove old routing entries.
+                for magic in list(set(expired)):
+                    try:
+                        bucket_no = main.ping_ids[magic]["bucket_no"]
+                        node = main.ping_ids[magic]["node"]
 
-                    break
+                        """
+                        Todo: there was an error here where the node wasn't found in the bucket. Not sure what could be causing this but this is a simple work-around.
 
-                #Refresh last ping.
-                main.last_ping = time.time()
+                        After investigation: I think the problem is that when buckets get full the end node gets popped to add room. This could cause a recent node entry to no longer be available in the table when the line bellow is executed to try remove it.
 
-            #Record expired pings.
-            expired = []
-            for magic in list(main.ping_ids):
-                ping = main.ping_ids[magic]
-                elapsed = time.time() - ping["timestamp"]
-                if elapsed >= main.ping_expiry:
-                    expired.append(magic)
+                        Another explanation is multiple outstanding pings for the same node?
+                        """
+                        if node in main.buckets.buckets[bucket_no]:
+                            main.buckets.buckets[bucket_no].remove(node)
 
-            #Timeout pending pings and remove old routing entries.
-            for magic in expired:
-                try:
-                    bucket_no = main.ping_ids[magic]["bucket_no"]
-                    node = main.ping_ids[magic]["node"]
+                        #More cleanup stuff so new nodes can be added.
+                        host, port, id = node
+                        if host in main.buckets.seen_ips:
+                            if port in main.buckets.seen_ips[host]:
+                                main.buckets.seen_ips[host].remove(port)
 
-                    """
-                    Todo: there was an error here where the node wasn't found in the bucket. Not sure what could be causing this but this is a simple work-around.
+                            if not len(main.buckets.seen_ips[host]):
+                                del main.buckets.seen_ips[host]
 
-                    After investigation: I think the problem is that when buckets get full the end node gets popped to add room. This could cause a recent node entry to no longer be available in the table when the line bellow is executed to try remove it.
-                    """
-                    if node in main.buckets.buckets[bucket_no]:
-                        main.buckets.buckets[bucket_no].remove(node)
+                        if id in main.buckets.seen_ids:
+                            del main.buckets.seen_ids[id]
 
-                    #More cleanup stuff so new nodes can be added.
-                    host, port, id = node
-                    if host in main.buckets.seen_ips:
-                        if port in main.buckets.seen_ips[host]:
-                            main.buckets.seen_ips[host].remove(port)
+                        #Added a check here just in case.
+                        freshness = main.ping_ids[magic]["freshness"]
+                        if freshness in main.buckets.node_freshness:
+                            main.buckets.node_freshness.remove(freshness)
+                    except Exception as e:
+                        exc_type, exc_obj, exc_tb = sys.exc_info()
+                        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                        print(exc_type, fname, exc_tb.tb_lineno, str(e))
+                    finally:
+                        del main.ping_ids[magic]
 
-                        if not len(main.buckets.seen_ips[host]):
-                            del main.buckets.seen_ips[host]
+                #Check for expired keys.
+                if main.store_expiry:
+                    #Time to run check again?
+                    elapsed = time.time() - main.last_store_check
+                    if elapsed >= main.store_check_interval:
+                        #Record expired keys.
+                        expired = []
+                        for key in list(main.data):
+                            value = main.data[key]
+                            elapsed = time.time() - value["timestamp"]
+                            if elapsed >= main.store_expiry:
+                                expired.append(key)
 
-                    if id in main.buckets.seen_ids:
-                        del main.buckets.seen_ids[id]
+                        #Timeout expired keys.
+                        for key in list(set(expired)):
+                            del main.data[key]
 
-                    #Added a check here just in case.
-                    freshness = main.ping_ids[magic]["freshness"]
-                    if freshness in main.buckets.node_freshness:
-                        main.buckets.node_freshness.remove(freshness)
-                except Exception as e:
-                    exc_type, exc_obj, exc_tb = sys.exc_info()
-                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-                    print(exc_type, fname, exc_tb.tb_lineno, str(e))
-                finally:
-                    del main.ping_ids[magic]
+                        #Reset last_store_check.
+                        main.last_store_check = time.time()
 
-            #Check for expired keys.
-            if main.store_expiry:
-                #Time to run check again?
-                elapsed = time.time() - main.last_store_check
-                if elapsed >= main.store_check_interval:
-                    #Record expired keys.
-                    expired = []
-                    for key in list(main.data):
-                        value = main.data[key]
-                        elapsed = time.time() - value["timestamp"]
-                        if elapsed >= main.store_expiry:
-                            expired.append(key)
+            #Handle replies and requests.
+            message = json.loads(self.request[0].decode("utf-8").strip())
+            message_type = message["message_type"]
+            if debug:
+                print(message)
 
-                    #Timeout expired keys.
-                    for key in expired:
-                        del main.data[key]
-
-                    #Reset last_store_check.
-                    main.last_store_check = time.time()
-
-        #Handle replies and requests.
-        message = json.loads(self.request[0].decode("utf-8").strip())
-        message_type = message["message_type"]
-        if debug:
-            print(message)
-        try:
             if message_type == "ping":
                 self.handle_ping(message)
             elif message_type == "pong":
@@ -161,16 +167,16 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
                 self.handle_store(message)
             elif message_type == "push":
                 self.handle_push(message)
+
+            client_host, client_port = self.client_address
+            peer_id = message["peer_id"]
+            new_peer = Peer(client_host, client_port, peer_id)
+            self.server.dht.buckets.insert(new_peer)
         except Exception as e:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
             print(exc_type, fname, exc_tb.tb_lineno, str(e))
             return
-
-        client_host, client_port = self.client_address
-        peer_id = message["peer_id"]
-        new_peer = Peer(client_host, client_port, peer_id)
-        self.server.dht.buckets.insert(new_peer)
 
     def handle_ping(self, message):
         client_host, client_port = self.client_address
