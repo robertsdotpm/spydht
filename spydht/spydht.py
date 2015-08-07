@@ -17,7 +17,6 @@ except:
 import threading
 import time
 
-import nacl.signing
 import uuid
 import hashlib
 
@@ -250,32 +249,19 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
             if elapsed < 0:
                 return
 
-        #Verify updated message is signed with same key.
+        #Verify if message exists.
         if key in self.server.dht.data:
-            #Signature is valid.
-            #(Raises exception if not.)
-            ret = nacl.signing.VerifyKey(self.server.dht.data[key]["key"], encoder=nacl.encoding.Base64Encoder).verify(nacl.encoding.Base64Encoder.decode(message["value"]["signature"]))
             already_exists = 1
+            return
         else:
-            ret = nacl.signing.VerifyKey(message["value"]["key"], encoder=nacl.encoding.Base64Encoder).verify(nacl.encoding.Base64Encoder.decode(message["value"]["signature"]))
             already_exists = 0
 
         #Decode ret to unicode.
         if type(ret) == bytes:
             ret = ret.decode("utf-8")
 
-        #Check that the signature corresponds to this message.
-        message_content = message["value"]["content"]
-        if ret != message_content:
-            return
-
-        """
-        A node is allowed to "update" their old key by deleting it if they can prove ownership by sig signing with the original key but a new key still has to be computed so the content moves.
-        """
+        #Check key is correct.
         expected_key = hash_function(message["value"]["id"].encode("ascii") + message["value"]["content"].encode("ascii"))
-        if already_exists:
-            del self.server.dht.data[key]
-            key = expected_key
 
         #Verify key is correct.
         if key != expected_key:
@@ -397,10 +383,8 @@ class DHT(object):
     def value_to_str(self, value):
         s  = str(value["id"])
         s += str(value["content"])
-        s += str(value["key"])
         s += str(value["timestamp"])
         s += str(value["pow"])
-        s += str(value["signature"])
 
         return s
     
@@ -497,8 +481,6 @@ class DHT(object):
             "id": key,
             "timestamp": time.time(),
             "content": content,
-            "key": self.my_key.verify_key.encode(encoder=nacl.encoding.Base64Encoder).decode("utf-8"),
-            "signature": nacl.encoding.Base64Encoder.encode(self.my_key.sign(content.encode("ascii"))).decode("utf-8"),
             "pow": self.pow_placeholder
         }
 

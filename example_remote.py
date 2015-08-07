@@ -2,12 +2,11 @@
 
 import uuid
 from spydht.spydht import DHT
-import nacl.signing
 import time
 import hashlib
 
 host1, port1 = '176.9.147.116', 31000
-key2 = nacl.signing.SigningKey.generate()
+key2 = None
 host2, port2 = '0.0.0.0', 3021
 dht2 = DHT(host2, port2, key2, boot_host=host1, boot_port=port1, wan_ip="my_wan_ip")
 id = "myid"
