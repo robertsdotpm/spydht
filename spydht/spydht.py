@@ -256,10 +256,6 @@ class DHTRequestHandler(socketserver.BaseRequestHandler):
         else:
             already_exists = 0
 
-        #Decode ret to unicode.
-        if type(ret) == bytes:
-            ret = ret.decode("utf-8")
-
         #Check key is correct.
         expected_key = hash_function(message["value"]["id"].encode("ascii") + message["value"]["content"].encode("ascii"))
 
